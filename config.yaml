@@ -1,5 +1,5 @@
 name: CUPS
-version: "1.8"
+version: "1.9"
 slug: cupsik
 description: A CUPS print server with working AirPrint
 arch:
@@ -18,3 +18,7 @@ ports_description:
 # ingress: false
 map:
   - addon_config:rw
+options:
+  mdns_interface: ""
+schema:
+  mdns_interface: str?

@@ -1,3 +1,28 @@
+## v1.9
+
+- Pin Avahi to a single network interface. `enable-reflector=no` in v1.8 reduced
+  the self-collision but did not remove it: with `host_network: true` Avahi still
+  *binds* wlan0, hassio, docker0, tailscale0 and every veth pair, hears its own
+  announcement arrive on a second interface, and renames itself. A live install on
+  v1.8 was still coming up as `9e3ebd7e-cupsik-3.local`.
+
+  The damage is that cupsd's service record keeps advertising the ORIGINAL host
+  name, which no longer resolves:
+
+      ping 9e3ebd7e-cupsik.local    -> Unknown host        (what SRV points at)
+      ping 9e3ebd7e-cupsik-3.local  -> replies             (what Avahi registered)
+
+  Everything that follows the advertisement therefore fails after a successful
+  discovery. iOS lists the printer, spins on "Gathering printer information", then
+  reports "The printer is offline". macOS cannot fetch capabilities and offers only
+  Generic PostScript instead of AirPrint. Printing by IP works the whole time,
+  which is what makes it look like a driver problem rather than a name problem.
+  The TXT record itself is fine - `URF`, `pdl` and `rp` are all correct.
+
+  The avahi-daemon run script now writes `allow-interfaces=` before starting the
+  daemon, taking the value from the new `mdns_interface` option, or auto-detecting
+  the host's default-route interface from /proc/net/route when that is left empty.
+
 ## v1.8
 
 - Ship the Avahi reflector fix. `enable-reflector=no` was committed in July but

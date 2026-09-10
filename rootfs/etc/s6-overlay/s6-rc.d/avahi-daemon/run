@@ -2,6 +2,46 @@
 
 ulimit -n 524288
 
+# Pin Avahi to the real LAN interface.
+#
+# With host_network: true the container sees every interface the host has -
+# wlan0, hassio, docker0, tailscale0 and a dozen veth pairs. Avahi publishes the
+# host name on all of them, hears its own announcement arrive on a different
+# interface, treats that as another machine claiming the name, and renames
+# itself to <host>-2, <host>-3 and so on.
+#
+# The CUPS service record keeps advertising the ORIGINAL name, which no longer
+# resolves. Clients discover the printer from the TXT record and then fail to
+# reach it: iOS shows "The printer is offline", macOS cannot fetch capabilities
+# and falls back to Generic PostScript. Printing by IP keeps working throughout,
+# which is what makes this so confusing to diagnose.
+#
+# Disabling the reflector in v1.8 reduced this but did not remove it - the
+# collision happens across bound interfaces, not only reflected ones.
+CONF=/etc/avahi/avahi-daemon.conf
+
+IFACE=$(bashio::config 'mdns_interface')
+
+if bashio::var.has_value "${IFACE}"; then
+  bashio::log.info "mDNS interface from add-on options: ${IFACE}"
+else
+  # /proc/net/route needs no iproute2 in the image. 00000000 == default route.
+  IFACE=$(awk '$2 == "00000000" { print $1; exit }' /proc/net/route)
+  bashio::log.info "mDNS interface auto-detected from default route: ${IFACE:-<none>}"
+fi
+
+if bashio::var.has_value "${IFACE}"; then
+  if grep -qE '^#?allow-interfaces=' "${CONF}"; then
+    sed -i -E "s|^#?allow-interfaces=.*|allow-interfaces=${IFACE}|" "${CONF}"
+  else
+    sed -i "s|^\[server\]|[server]\nallow-interfaces=${IFACE}|" "${CONF}"
+  fi
+  bashio::log.info "Avahi restricted to ${IFACE}"
+else
+  bashio::log.warning "No LAN interface found - Avahi will bind every interface"
+  bashio::log.warning "and may rename itself, breaking AirPrint discovery."
+fi
+
 bashio::log.info "Starting Avahi daemon from S6"
 
 until [ -e /run/dbus/system_bus_socket ]; do
